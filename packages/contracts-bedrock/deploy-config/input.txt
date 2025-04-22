@@ -1,0 +1,186 @@
+DEPLOYMENT_OUTFILE=deployments/artifact.json \
+DEPLOY_CONFIG_PATH=deploy-config/zuux.json \
+IMPL_SALT=0x4f351e437f06ce2d55f5abdb1522838181cea1f4d02e19e5aab84490aedc8d62 \
+  forge script scripts/deploy/Deploy.s.sol:Deploy \
+  --broadcast --private-key $PRIVATE_KEY \
+  --rpc-url $L1_RPC_URL
+
+
+DEPLOYMENT_OUTFILE=deployments/artifact.json \
+DEPLOY_CONFIG_PATH=deploy-config/zuux.json \ echo "$DEPLOY_CONFIG_PATH"
+
+CONTRACT_ADDRESSES_PATH=/home/ubuntu/optimism/packages/contracts-bedrock/deployments/artifact.json \
+DEPLOY_CONFIG_PATH=/home/ubuntu/optimism/packages/contracts-bedrock/deploy-config/zuux.json \
+STATE_DUMP_PATH=/home/ubuntu/optimism/packages/contracts-bedrock/deployments/state.dump \
+  forge script scripts/L2Genesis.s.sol:L2Genesis \
+  --sig 'runWithStateDump()' --chain-id $L2_CHAIN_ID
+
+
+op-node genesis l2 \
+  --l1-rpc $L1_RPC_URL \
+  --deploy-config /home/ubuntu/optimism/packages/contracts-bedrock/deploy-config/zuux.json \
+  --l2-allocs /home/ubuntu/optimism/packages/contracts-bedrock/deployments/state.dump \
+  --l1-deployments /home/ubuntu/optimism/packages/contracts-bedrock/deployments/artifact.json \
+  --outfile.l2 genesis.json \
+  --outfile.rollup rollup.json
+
+
+/home/ubuntu/op-geth/build/bin/geth \
+  --datadir ./datadir \
+  --http \
+  --http.corsdomain="*" \
+  --http.vhosts="*" \
+  --http.addr=0.0.0.0 \
+  --http.api=web3,debug,eth,txpool,net,engine \
+  --ws \
+  --ws.addr=0.0.0.0 \
+  --ws.port=8546 \
+  --ws.origins="*" \
+  --ws.api=debug,eth,txpool,net,engine \
+  --syncmode=full \
+  --gcmode=archive \
+  --nodiscover \
+  --maxpeers=0 \
+  --networkid=42069 \
+  --authrpc.vhosts="*" \
+  --authrpc.addr=0.0.0.0 \
+  --authrpc.port=8551 \
+  --authrpc.jwtsecret=./jwt.txt \
+  --rollup.disabletxpoolgossip=true
+
+
+
+  ./bin/op-node \
+  --l2=http://localhost:8551 \
+  --l2.jwt-secret=./jwt.txt \
+  --sequencer.enabled \
+  --sequencer.l1-confs=5 \
+  --verifier.l1-confs=4 \
+  --rollup.config=./rollup.json \
+  --rpc.addr=0.0.0.0 \
+  --p2p.disable \
+  --rpc.enable-admin \
+  --p2p.sequencer.key=$GS_SEQUENCER_PRIVATE_KEY \
+  --l1=https://eth-sepolia.g.alchemy.com/v2/Kisj2vNZUmdCNEjCoXuks8-jJxb4Uu5c \
+  --l1.beacon=https://ethereum-sepolia-beacon-api.publicnode.com \
+  --l1.rpckind=alchemy \
+    --metrics.enabled \
+  --metrics.addr=0.0.0.0 \
+  --metrics.port=7300
+
+
+
+./bin/op-batcher \
+  --l2-eth-rpc=http://localhost:8545 \
+  --rollup-rpc=http://localhost:9545 \
+  --poll-interval=1s \
+  --sub-safety-margin=6 \
+  --num-confirmations=1 \
+  --safe-abort-nonce-too-low-count=3 \
+  --resubmission-timeout=30s \
+  --rpc.addr=0.0.0.0 \
+  --rpc.port=8548 \
+  --rpc.enable-admin \
+  --max-channel-duration=25 \
+  --l1-eth-rpc=https://frosty-capable-frog.ethereum-sepolia.quiknode.pro/1b0c4753e3f510f55878940bbfe49da36c845a31 \
+  --private-key=$GS_BATCHER_PRIVATE_KEY
+
+
+
+
+
+
+tmux new -s op-geth
+tmux new -s op-node
+tmux new -s op-batcher
+tmux new -s op-proposer
+
+
+tmux attach -t op-batcher
+
+
+
+./bin/op-batcher \
+  --l2-eth-rpc=http://localhost:8545 \
+  --rollup-rpc=http://localhost:9545 \
+  --poll-interval=1s \
+  --sub-safety-margin=6 \
+  --num-confirmations=1 \
+  --safe-abort-nonce-too-low-count=3 \
+  --resubmission-timeout=30s \
+  --rpc.addr=0.0.0.0 \
+  --rpc.port=8548 \
+  --rpc.enable-admin \
+  --max-channel-duration=300 \
+  --l1-eth-rpc=$L1_RPC_URL \
+  --private-key=$GS_BATCHER_PRIVATE_KEY
+
+
+./bin/op-proposer \
+  --poll-interval=12s \
+  --rpc.port=8560 \
+  --rollup-rpc=http://localhost:9545 \
+  --l2oo-address=$(cat ../packages/contracts-bedrock/deployments/artifact.json | jq -r .L2OutputOracleProxy) \
+  --private-key=$GS_PROPOSER_PRIVATE_KEY \
+  --l1-eth-rpc=https://eth-sepolia.g.alchemy.com/v2/Kisj2vNZUmdCNEjCoXuks8-jJxb4Uu5c
+
+
+
+./bin/op-proposer \
+  --poll-interval=12s \
+  --rpc.port=8560 \
+  --rollup-rpc=http://localhost:9545 \
+  --l2oo-address=$(cat ../packages/contracts-bedrock/deployments/artifact.json | jq -r .L2OutputOracleProxy) \
+  --private-key=$GS_PROPOSER_PRIVATE_KEY \
+  --l1-eth-rpc=$L1_RPC_URL
+
+
+cast call --rpc-url $L2_ETH_RPC_URL $(cat packages/contracts-bedrock/deployments/artifact.json | jq -r .SystemConfig) 'isCustomGasToken()(bool)'
+./bin/op-batcher \
+  --l2-eth-rpc=http://localhost:8545 \
+  --rollup-rpc=http://localhost:9545 \
+  --poll-interval=1s \
+  --sub-safety-margin=6 \
+  --num-confirmations=1 \
+  --safe-abort-nonce-too-low-count=3 \
+  --resubmission-timeout=30s \
+  --rpc.addr=0.0.0.0 \
+  --rpc.port=8548 \
+  --rpc.enable-admin \
+  --max-channel-duration=300 \
+  --l1-eth-rpc=$L1_RPC_URL \
+  --private-key=$GS_BATCHER_PRIVATE_KEY
+
+
+./bin/op-batcher \
+  --l2-eth-rpc=http://localhost:8545 \
+  --rollup-rpc=http://localhost:9545 \
+  --poll-interval=1s \
+  --sub-safety-margin=6 \
+  --num-confirmations=1 \
+  --safe-abort-nonce-too-low-count=3 \
+  --resubmission-timeout=30s   --rpc.addr=0.0.0.0   --rpc.port=8548   --rpc.enable-admin  \
+   --max-channel-duration=25 \
+  --l1-eth-rpc=https://eth-sepolia.g.alchemy.com/v2/Kisj2vNZUmdCNEjCoXuks8-jJxb4Uu5c \
+  --private-key=$GS_BATCHER_PRIVATE_KEY
+
+ ./bin/op-batcher \
+  --l2-eth-rpc=http://localhost:8545 \
+  --rollup-rpc=http://localhost:9545 \
+  --poll-interval=1s \
+  --sub-safety-margin=6 \
+  --num-confirmations=1 \
+  --safe-abort-nonce-too-low-count=3 \
+  --resubmission-timeout=30s \
+  --rpc.addr=0.0.0.0 \
+  --rpc.port=8548 \
+  --rpc.enable-admin \
+  --max-channel-duration=2 \
+  --l1-eth-rpc=https://frosty-capable-frog.ethereum-sepolia.quiknode.pro/1b0c4753e3f510f55878940bbfe49da36c845a31 \
+  --private-key=$GS_BATCHER_PRIVATE_KEY
+
+
+
+--l1-eth-rpc=https://frosty-capable-frog.ethereum-sepolia.quiknode.pro/1b0c4753e3f510f55878940bbfe49da36c845a31 \
+
+
